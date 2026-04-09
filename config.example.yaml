@@ -1,0 +1,200 @@
+# Tinode Server Configuration
+server:
+  url: "wss://localhost:16060/v0/channels"  # WebSocket endpoint
+  api_key: "AIzaSyDhRN9-4B2F7w-5X1q8L2M3N4O5P6Q7R8S"
+  api_endpoint: "https://localhost:6060"    # For user provisioning (REST)
+  timeout_seconds: 30
+
+# Global Settings
+generator:
+  # Concurrency: max number of parallel goroutines
+  max_concurrency: 10
+  # Rate limiting: events per second (0 = unlimited)
+  rate_limit_per_second: 100
+  # Dry run: log events but don't send to server
+  dry_run: false
+  # Log level: debug, info, warn, error
+  log_level: info
+  # Output: stdout, file, or both
+  log_output: stdout
+  log_file: generator.log
+  # Events log file (JSONL format for audit trail)
+  events_log_file: events.jsonl
+  # Prometheus metrics address (empty = disabled)
+  metrics_addr: ":8080"
+  # Selected scenarios: "all" or comma-separated list (e.g., "brute_force,concurrent_sessions")
+  selected_scenarios: "all"
+
+# User Definitions (auto-provisioned on startup)
+users:
+  - id: attacker
+    login: attacker_user
+    password: "SecurePassword123!@#"
+    description: "Attacker account for security testing"
+  
+  - id: victim
+    login: victim_user
+    password: "VictimPassword456!@#"
+    description: "Victim account for testing"
+  
+  - id: inactive
+    login: inactive_user
+    password: "InactivePassword789!@#"
+    description: "Inactive account (for R6 scenario)"
+  
+  - id: normal_user1
+    login: normal_user_1
+    password: "NormalPassword001!@#"
+    description: "Normal user for baseline traffic"
+  
+  - id: normal_user2
+    login: normal_user_2
+    password: "NormalPassword002!@#"
+    description: "Normal user for baseline traffic"
+
+# Topic Definitions (auto-created on startup)
+topics:
+  - name: "test_group"
+    type: "group"
+    description: "Test group topic for scenarios"
+    default_access_auth: "JRWPS"
+    default_access_anon: "N"
+
+# Scenario Configurations
+scenarios:
+  # R1: Brute Force Login Attempts
+  brute_force:
+    enabled: true
+    description: "Attempt multiple failed logins to trigger brute force detection"
+    user_id: attacker
+    target_login: victim_user
+    password_attempts:
+      - "WrongPassword1"
+      - "WrongPassword2"
+      - "WrongPassword3"
+      - "WrongPassword4"
+      - "WrongPassword5"
+    # Minimum attempts before scenario completes (audit may detect at 5-10)
+    min_attempts: 10
+    interval_ms: 500
+    timeout_seconds: 60
+
+  # R2: Concurrent Sessions from Same User
+  concurrent_sessions:
+    enabled: true
+    description: "Open N parallel WebSocket connections from same user"
+    user_id: attacker
+    session_count: 4
+    duration_seconds: 30
+    # Each session publishes messages to demonstrate presence
+    messages_per_session: 3
+    interval_ms: 1000
+
+  # R3: Mass Delete Messages
+  mass_delete:
+    enabled: true
+    description: "Rapidly delete many messages from P2P topic"
+    user_id: attacker
+    peer_user_id: victim
+    # First, publish N messages, then delete them
+    publish_count: 25
+    publish_interval_ms: 100
+    delete_burst_count: 20
+    delete_interval_ms: 50
+    timeout_seconds: 120
+
+  # R4: Volume Anomaly (High Message Rate)
+  volume_anomaly:
+    enabled: true
+    description: "Publish high-frequency messages from single user"
+    user_id: attacker
+    topic_name: "test_group"
+    messages_per_minute: 500
+    duration_seconds: 60
+    message_content: "Anomaly test message #%d"
+
+  # R5: Topic Enumeration (Access Denied Attempts)
+  enumeration:
+    enabled: true
+    description: "Attempt subscriptions to closed/restricted topics"
+    user_id: attacker
+    # List of closed topics to attempt (server will reject)
+    topic_ids:
+      - "grpClosedTopic1"
+      - "grpClosedTopic2"
+      - "grpClosedTopic3"
+      - "grpRestrictedTopic1"
+      - "grpRestrictedTopic2"
+    interval_ms: 200
+    timeout_seconds: 30
+
+  # R6: Inactive Account Sudden Activity
+  inactive_account:
+    enabled: true
+    description: "Account inactive for 30+ days, sudden burst of activity"
+    user_id: inactive
+    # NOTE: This requires pre-staging (account must be aged 30+ days)
+    # Set to false if account wasn't staged 30 days ago
+    topic_name: "test_group"
+    message_burst_count: 50
+    interval_ms: 100
+    timeout_seconds: 60
+
+  # R7: Off-Hours Activity (Normal Traffic Outside Business Hours)
+  off_hours:
+    enabled: false  # Typically disabled unless testing specific times
+    description: "Normal traffic pattern outside business hours (cron-like)"
+    user_id: attacker
+    topic_name: "test_group"
+    messages_per_minute: 50
+    duration_seconds: 300
+    # Business hours (UTC)
+    business_hours_start: "09:00"
+    business_hours_end: "17:00"
+    timezone: "UTC"
+    # Trigger off-hours simulation at specific times (for testing)
+    # Leave empty to run during actual off-hours
+    simulate_time: ""
+
+  # Baseline: Normal Activity (Control Group)
+  normal:
+    enabled: true
+    description: "Normal realistic user behavior (control group)"
+    user_ids:
+      - normal_user1
+      - normal_user2
+    messages_per_minute: 10
+    duration_seconds: 300
+    # P2P and group topics
+    p2p_messages_ratio: 0.4    # 40% P2P, 60% group
+    message_templates:
+      - "Hello, how are you?"
+      - "Thanks for your message"
+      - "Got it, will do"
+      - "See you soon"
+      - "Sounds good!"
+
+# Metrics & Monitoring
+metrics:
+  enabled: true
+  port: 9090
+  path: "/metrics"
+
+# Output/Reporting
+output:
+  # Format: json, text, prometheus
+  format: text
+  # File to write results (empty = stdout)
+  file: ""
+  # Include detailed event logs
+  include_events: true
+  # Include statistics summary
+  include_stats: true
+
+# Audit/Validation
+audit:
+  # Check if Kafka (ingestor) receives events
+  validate_kafka: false
+  kafka_broker: "localhost:9092"
+  kafka_topic: "audit"
+  kafka_timeout_seconds: 10
