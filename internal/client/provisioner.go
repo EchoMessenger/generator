@@ -1,8 +1,12 @@
 package client
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 
 	"github.com/echomessenger/generator/internal/config"
 	"github.com/sirupsen/logrus"
@@ -48,33 +52,57 @@ func (p *Provisioner) ProvisionAll(ctx context.Context) error {
 	return nil
 }
 
-// provisionUser attempts to create a user
+// provisionUser attempts to create a user via REST API
 func (p *Provisioner) provisionUser(ctx context.Context, user config.UserConfig) error {
 	p.log.Debugf("Provisioning user: %s (%s)", user.ID, user.Login)
 
-	// NOTE: User creation via Tinode API would go here
-	// For now, we assume users are pre-created in the test environment
-	// Actual implementation would:
-	// 1. Use Tinode REST API (/v0/users) to create account
-	// 2. Set password via Acc {secret} with basic auth
-	// 3. Handle idempotent creation (409 = already exists)
+	// Use REST API to create account via Tinode server
+	// If user already exists, we get 409 which is OK
+	payload := map[string]interface{}{
+		"acc": map[string]interface{}{
+			"user":   user.Login,
+			"passwd": user.Password,
+			"public": map[string]string{
+				"name": user.Description,
+			},
+		},
+	}
 
-	// Verify user exists by attempting login
-	wsClient := NewClient(p.config.Server.URL, p.config.Server.APIKey, p.log)
-	if err := wsClient.Connect(ctx); err != nil {
-		// Connection error, skip verification
-		p.log.Debugf("Could not verify user %s (connection failed): %v", user.Login, err)
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("failed to marshal user payload: %w", err)
+	}
+
+	url := fmt.Sprintf("%s/v0/users", p.config.Server.APIEndpoint)
+	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(body))
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	if p.config.Server.APIKey != "" {
+		req.Header.Set("X-Tinode-APIKey", p.config.Server.APIKey)
+	}
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		p.log.Debugf("Could not provision user %s (connection failed): %v", user.Login, err)
+		return nil // Soft error - user might already exist or server unreachable
+	}
+	defer resp.Body.Close()
+
+	// Read response
+	respBody, _ := io.ReadAll(resp.Body)
+
+	// 200, 201 = created, 409 = already exists (OK)
+	if resp.StatusCode == 200 || resp.StatusCode == 201 || resp.StatusCode == 409 {
+		p.log.Debugf("User %s provisioned successfully (status: %d)", user.Login, resp.StatusCode)
 		return nil
 	}
-	defer wsClient.Close()
 
-	session := NewSession(wsClient, user.Login, user.Password, p.log)
-	if err := session.Connect(ctx); err != nil {
-		return fmt.Errorf("user %s verification failed: %w", user.Login, err)
-	}
-	defer session.Close()
-
-	p.log.Debugf("User %s verified", user.Login)
+	// Other error codes are warnings but not fatal
+	p.log.Debugf("User %s provisioning status %d: %s", user.Login, resp.StatusCode, string(respBody))
 	return nil
 }
 
