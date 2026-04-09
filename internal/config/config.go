@@ -212,8 +212,14 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("server.url is required")
 	}
 
+	// Check for api_key in config or environment variable
 	if c.Server.APIKey == "" {
-		return fmt.Errorf("server.api_key is required")
+		// Try to get from TINODE_API_KEY environment variable
+		if apiKey := os.Getenv("TINODE_API_KEY"); apiKey != "" {
+			c.Server.APIKey = apiKey
+		} else {
+			return fmt.Errorf("server.api_key is required (set in config or TINODE_API_KEY env var)")
+		}
 	}
 
 	if len(c.Users) == 0 {
