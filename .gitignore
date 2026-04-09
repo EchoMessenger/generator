@@ -30,7 +30,6 @@ config.yaml
 !config.example.yaml
 
 # Go
-go.sum
 vendor/
 
 # Temporary
