@@ -2,7 +2,6 @@ package client
 
 import (
 	"context"
-	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"sync"
@@ -197,10 +196,7 @@ func (c *Client) Connect(ctx context.Context) error {
 	}
 
 	dialer := websocket.Dialer{
-		HandshakeTimeout:  10 * time.Second,
-		TLSClientConfig: &tls.Config{
-			InsecureSkipVerify: true, // Allow self-signed certificates for wss://
-		},
+		HandshakeTimeout: 10 * time.Second,
 	}
 
 	conn, _, err := dialer.DialContext(ctx, url, nil)

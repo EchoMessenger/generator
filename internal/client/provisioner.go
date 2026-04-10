@@ -3,6 +3,7 @@ package client
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/echomessenger/generator/internal/config"
 	"github.com/sirupsen/logrus"
@@ -60,7 +61,13 @@ func (p *Provisioner) provisionUser(ctx context.Context, user config.UserConfig)
 	}
 	defer wsClient.Close()
 
-	// Step 1: Send handshake {hi} message
+	// Create a session for request/response correlation
+	session := NewSession(wsClient, "", "", p.log)
+	
+	// Start response dispatcher
+	go session.dispatchResponses()
+	
+	// Step 1: Send handshake {hi} message and wait for response
 	msgID := wsClient.NextMsgID()
 	hiMsg := &ClientMessage{
 		Hi: &HiMessage{
@@ -73,6 +80,18 @@ func (p *Provisioner) provisionUser(ctx context.Context, user config.UserConfig)
 
 	if err := wsClient.SendSync(ctx, hiMsg); err != nil {
 		p.log.Debugf("Failed to send handshake for user %s: %v", user.Login, err)
+		return nil
+	}
+	
+	// Wait for handshake response
+	resp, err := session.waitForResponse(ctx, msgID, 5*time.Second)
+	if err != nil {
+		p.log.Debugf("Handshake failed for user %s: %v", user.Login, err)
+		return nil
+	}
+	
+	if resp.Ctrl == nil || resp.Ctrl.Code != 200 {
+		p.log.Debugf("Handshake rejected for user %s", user.Login)
 		return nil
 	}
 
@@ -93,8 +112,20 @@ func (p *Provisioner) provisionUser(ctx context.Context, user config.UserConfig)
 		p.log.Debugf("Failed to send acc message for user %s: %v", user.Login, err)
 		return nil // Soft error
 	}
+	
+	// Wait for account creation response
+	resp, err = session.waitForResponse(ctx, msgID, 5*time.Second)
+	if err != nil {
+		p.log.Debugf("Account creation failed for user %s: %v", user.Login, err)
+		return nil
+	}
+	
+	if resp.Ctrl == nil || resp.Ctrl.Code != 200 {
+		p.log.Debugf("Account creation rejected for user %s: code=%d", user.Login, resp.Ctrl.Code)
+		return nil
+	}
 
-	p.log.Debugf("User %s provisioned via {acc} message", user.Login)
+	p.log.Debugf("User %s provisioned successfully", user.Login)
 	return nil
 }
 

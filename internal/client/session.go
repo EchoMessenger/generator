@@ -37,6 +37,9 @@ func NewSession(client *Client, username, password string, log *logrus.Logger) *
 
 // Connect performs handshake and authentication
 func (s *Session) Connect(ctx context.Context) error {
+	// Start response dispatcher BEFORE handshake (it reads responses from client)
+	go s.dispatchResponses()
+
 	// Step 1: Handshake
 	if err := s.handshake(ctx); err != nil {
 		return fmt.Errorf("handshake failed: %w", err)
@@ -51,15 +54,13 @@ func (s *Session) Connect(ctx context.Context) error {
 
 	s.log.Infof("Authenticated as %s (uid: %s)", s.username, s.uid)
 
-	// Start response dispatcher
-	go s.dispatchResponses()
-
 	return nil
 }
 
 // handshake sends {hi} message and waits for response
 func (s *Session) handshake(ctx context.Context) error {
 	msgID := s.client.NextMsgID()
+	s.log.Debugf("Starting handshake with message ID: %s", msgID)
 
 	msg := &ClientMessage{
 		Hi: &HiMessage{
@@ -73,6 +74,7 @@ func (s *Session) handshake(ctx context.Context) error {
 	if err := s.client.SendSync(ctx, msg); err != nil {
 		return err
 	}
+	s.log.Debugf("Sent {hi} message, waiting for response...")
 
 	// Wait for {ctrl code=200}
 	resp, err := s.waitForResponse(ctx, msgID, 5*time.Second)
@@ -88,6 +90,7 @@ func (s *Session) handshake(ctx context.Context) error {
 		return fmt.Errorf("handshake failed: code %d, text: %s", resp.Ctrl.Code, resp.Ctrl.Text)
 	}
 
+	s.log.Debugf("Handshake complete: received {ctrl code=200}")
 	return nil
 }
 
@@ -352,6 +355,7 @@ func (s *Session) waitForResponse(ctx context.Context, msgID string, timeout tim
 
 // dispatchResponses reads from client and dispatches to waiting goroutines
 func (s *Session) dispatchResponses() {
+	s.log.Debugf("Response dispatcher started")
 	for {
 		msg, err := s.client.Recv()
 		if err != nil {
@@ -371,8 +375,10 @@ func (s *Session) dispatchResponses() {
 		var msgID string
 		if srvMsg.Ctrl != nil {
 			msgID = srvMsg.Ctrl.ID
+			s.log.Debugf("Received {ctrl} response: id=%s, code=%d", msgID, srvMsg.Ctrl.Code)
 		} else if srvMsg.Meta != nil {
 			msgID = srvMsg.Meta.ID
+			s.log.Debugf("Received {meta} response: id=%s", msgID)
 		}
 
 		if msgID == "" {
@@ -388,6 +394,7 @@ func (s *Session) dispatchResponses() {
 		if ok {
 			select {
 			case ch <- srvMsg:
+				s.log.Debugf("Dispatched response for message %s", msgID)
 			case <-time.After(100 * time.Millisecond):
 				s.log.Warnf("Response channel for %s was not consumed", msgID)
 			}
