@@ -90,7 +90,7 @@ func (p *Provisioner) provisionUser(ctx context.Context, user config.UserConfig)
 		return nil
 	}
 	
-	if resp.Ctrl == nil || resp.Ctrl.Code != 200 {
+	if resp.Ctrl == nil || (resp.Ctrl.Code != 200 && resp.Ctrl.Code != 201) {
 		p.log.Debugf("Handshake rejected for user %s", user.Login)
 		return nil
 	}
@@ -120,7 +120,7 @@ func (p *Provisioner) provisionUser(ctx context.Context, user config.UserConfig)
 		return nil
 	}
 	
-	if resp.Ctrl == nil || resp.Ctrl.Code != 200 {
+	if resp.Ctrl == nil || (resp.Ctrl.Code != 200 && resp.Ctrl.Code != 201) {
 		p.log.Debugf("Account creation rejected for user %s: code=%d", user.Login, resp.Ctrl.Code)
 		return nil
 	}

@@ -76,7 +76,7 @@ func (s *Session) handshake(ctx context.Context) error {
 	}
 	s.log.Debugf("Sent {hi} message, waiting for response...")
 
-	// Wait for {ctrl code=200}
+	// Wait for {ctrl code=200 or 201}
 	resp, err := s.waitForResponse(ctx, msgID, 5*time.Second)
 	if err != nil {
 		return err
@@ -86,11 +86,12 @@ func (s *Session) handshake(ctx context.Context) error {
 		return fmt.Errorf("expected {ctrl} response, got something else")
 	}
 
-	if resp.Ctrl.Code != 200 {
+	// Accept both 200 (OK) and 201 (Created) as successful handshake responses
+	if resp.Ctrl.Code != 200 && resp.Ctrl.Code != 201 {
 		return fmt.Errorf("handshake failed: code %d, text: %s", resp.Ctrl.Code, resp.Ctrl.Text)
 	}
 
-	s.log.Debugf("Handshake complete: received {ctrl code=200}")
+	s.log.Debugf("Handshake complete: received {ctrl code=%d}", resp.Ctrl.Code)
 	return nil
 }
 
