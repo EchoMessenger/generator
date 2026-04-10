@@ -2,6 +2,7 @@ package client
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"time"
 
@@ -95,13 +96,18 @@ func (p *Provisioner) provisionUser(ctx context.Context, user config.UserConfig)
 		return nil
 	}
 
-	// Step 2: Create account via {acc} message
+	// Step 2: Create account via {acc} message with basic auth scheme
 	msgID = wsClient.NextMsgID()
+	
+	// Encode credentials: username:password in base64 for basic auth
+	creds := fmt.Sprintf("%s:%s", user.Login, user.Password)
+	secret := base64.StdEncoding.EncodeToString([]byte(creds))
+	
 	accMsg := &ClientMessage{
 		Acc: &AccMessage{
 			ID:     msgID,
-			User:   user.Login,
-			Passwd: user.Password,
+			Scheme: "basic", // Must specify scheme for account creation
+			Secret: []byte(secret), // base64-encoded login:password
 			Login:  true, // Auto-login after account creation
 			Public: map[string]interface{}{
 				"name": user.Description,
@@ -113,6 +119,7 @@ func (p *Provisioner) provisionUser(ctx context.Context, user config.UserConfig)
 		p.log.Debugf("Failed to send acc message for user %s: %v", user.Login, err)
 		return nil // Soft error
 	}
+	p.log.Debugf("Sent {acc} message for user %s with scheme=basic", user.Login)
 	
 	// Wait for account creation response
 	resp, err = session.waitForResponse(ctx, msgID, 5*time.Second)
