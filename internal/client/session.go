@@ -102,6 +102,7 @@ func (s *Session) login(ctx context.Context) error {
 	// Encode credentials: username:password in base64
 	creds := fmt.Sprintf("%s:%s", s.username, s.password)
 	secret := base64.StdEncoding.EncodeToString([]byte(creds))
+	s.log.Debugf("Login attempt: username=%s, scheme=basic", s.username)
 
 	msg := &ClientMessage{
 		Login: &LoginMessage{
@@ -114,6 +115,7 @@ func (s *Session) login(ctx context.Context) error {
 	if err := s.client.SendSync(ctx, msg); err != nil {
 		return err
 	}
+	s.log.Debugf("Sent {login} message with ID: %s", msgID)
 
 	// Wait for {ctrl code=200} with token
 	resp, err := s.waitForResponse(ctx, msgID, 5*time.Second)

@@ -102,6 +102,7 @@ func (p *Provisioner) provisionUser(ctx context.Context, user config.UserConfig)
 			ID:     msgID,
 			User:   user.Login,
 			Passwd: user.Password,
+			Login:  true, // Auto-login after account creation
 			Public: map[string]interface{}{
 				"name": user.Description,
 			},
@@ -120,12 +121,17 @@ func (p *Provisioner) provisionUser(ctx context.Context, user config.UserConfig)
 		return nil
 	}
 	
-	if resp.Ctrl == nil || (resp.Ctrl.Code != 200 && resp.Ctrl.Code != 201) {
-		p.log.Debugf("Account creation rejected for user %s: code=%d", user.Login, resp.Ctrl.Code)
+	if resp.Ctrl == nil {
+		p.log.Debugf("Account creation returned nil ctrl for user %s", user.Login)
+		return nil
+	}
+	
+	if resp.Ctrl.Code != 200 && resp.Ctrl.Code != 201 {
+		p.log.Debugf("Account creation rejected for user %s: code=%d text=%s", user.Login, resp.Ctrl.Code, resp.Ctrl.Text)
 		return nil
 	}
 
-	p.log.Debugf("User %s provisioned successfully", user.Login)
+	p.log.Infof("User %s provisioned successfully (code=%d)", user.Login, resp.Ctrl.Code)
 	return nil
 }
 
