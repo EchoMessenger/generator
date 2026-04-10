@@ -118,11 +118,13 @@ type NoteMessage struct {
 }
 
 type AccMessage struct {
-	ID     string `json:"id,omitempty"`
-	User   string `json:"user"`
-	Scheme string `json:"scheme"`
-	Secret []byte `json:"secret"`
-	Login  bool   `json:"login,omitempty"`
+	ID     string                 `json:"id,omitempty"`
+	User   string                 `json:"user,omitempty"`
+	Scheme string                 `json:"scheme,omitempty"`
+	Secret []byte                 `json:"secret,omitempty"`
+	Login  bool                   `json:"login,omitempty"`
+	Passwd string                 `json:"passwd,omitempty"` // For account creation
+	Public map[string]interface{} `json:"public,omitempty"` // For account creation
 }
 
 // Server response types

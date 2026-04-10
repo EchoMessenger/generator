@@ -60,26 +60,41 @@ func (p *Provisioner) provisionUser(ctx context.Context, user config.UserConfig)
 	}
 	defer wsClient.Close()
 
-	// Create account via {acc} message
-	// {acc} message format: {acc {user: "username", passwd: "password", public: {...}}}
-	accMsg := map[string]interface{}{
-		"user":   user.Login,
-		"passwd": user.Password,
-		"public": map[string]string{
-			"name": user.Description,
+	// Step 1: Send handshake {hi} message
+	msgID := wsClient.NextMsgID()
+	hiMsg := &ClientMessage{
+		Hi: &HiMessage{
+			ID:   msgID,
+			Ver:  "0.15",
+			UA:   "Generator/1.0",
+			Lang: "en-US",
 		},
 	}
 
-	clientMsg := map[string]interface{}{
-		"acc": accMsg,
+	if err := wsClient.SendSync(ctx, hiMsg); err != nil {
+		p.log.Debugf("Failed to send handshake for user %s: %v", user.Login, err)
+		return nil
 	}
 
-	if err := wsClient.Send(clientMsg); err != nil {
+	// Step 2: Create account via {acc} message
+	msgID = wsClient.NextMsgID()
+	accMsg := &ClientMessage{
+		Acc: &AccMessage{
+			ID:     msgID,
+			User:   user.Login,
+			Passwd: user.Password,
+			Public: map[string]interface{}{
+				"name": user.Description,
+			},
+		},
+	}
+
+	if err := wsClient.SendSync(ctx, accMsg); err != nil {
 		p.log.Debugf("Failed to send acc message for user %s: %v", user.Login, err)
 		return nil // Soft error
 	}
 
-	p.log.Debugf("User %s provisioning requested via {acc} message", user.Login)
+	p.log.Debugf("User %s provisioned via {acc} message", user.Login)
 	return nil
 }
 
