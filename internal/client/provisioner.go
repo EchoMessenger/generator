@@ -72,7 +72,7 @@ func (p *Provisioner) provisionUser(ctx context.Context, user config.UserConfig)
 	hiMsg := &ClientMessage{
 		Hi: &HiMessage{
 			ID:   msgID,
-			Ver:  "0.15",
+			Ver:  "0.19",
 			UA:   "Generator/1.0",
 			Lang: "en-US",
 		},

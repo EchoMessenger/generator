@@ -65,7 +65,7 @@ func (s *Session) handshake(ctx context.Context) error {
 	msg := &ClientMessage{
 		Hi: &HiMessage{
 			ID:   msgID,
-			Ver:  "0.15",
+			Ver:  "0.19",
 			UA:   "Generator/1.0",
 			Lang: "en-US",
 		},
