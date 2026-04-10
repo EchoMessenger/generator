@@ -1,8 +1,8 @@
 # Tinode Server Configuration
 server:
-  url: "ws://localhost:16060/v0/channels"  # WebSocket endpoint (use ws:// without TLS for local dev)
+  url: "ws://localhost:6060/v0/channels"  # WebSocket endpoint (HTTP port 6060, not gRPC 16060)
   api_key: "YOUR_TINODE_API_KEY_HERE"
-  api_endpoint: "http://localhost:6060"    # For user provisioning (REST)
+  api_endpoint: "http://localhost:6060"    # For user provisioning (REST API)
   timeout_seconds: 30
 
 # Global Settings

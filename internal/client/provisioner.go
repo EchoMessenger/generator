@@ -1,12 +1,8 @@
 package client
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
 
 	"github.com/echomessenger/generator/internal/config"
 	"github.com/sirupsen/logrus"
@@ -52,57 +48,38 @@ func (p *Provisioner) ProvisionAll(ctx context.Context) error {
 	return nil
 }
 
-// provisionUser attempts to create a user via REST API
+// provisionUser attempts to create a user via WebSocket connection
 func (p *Provisioner) provisionUser(ctx context.Context, user config.UserConfig) error {
 	p.log.Debugf("Provisioning user: %s (%s)", user.ID, user.Login)
 
-	// Use REST API to create account via Tinode server
-	// If user already exists, we get 409 which is OK
-	payload := map[string]interface{}{
-		"acc": map[string]interface{}{
-			"user":   user.Login,
-			"passwd": user.Password,
-			"public": map[string]string{
-				"name": user.Description,
-			},
+	// Connect to server via WebSocket
+	wsClient := NewClient(p.config.Server.URL, p.config.Server.APIKey, p.log)
+	if err := wsClient.Connect(ctx); err != nil {
+		p.log.Debugf("Could not provision user %s (connection failed): %v", user.Login, err)
+		return nil // Soft error - server may be unreachable but provisioning can continue
+	}
+	defer wsClient.Close()
+
+	// Create account via {acc} message
+	// {acc} message format: {acc {user: "username", passwd: "password", public: {...}}}
+	accMsg := map[string]interface{}{
+		"user":   user.Login,
+		"passwd": user.Password,
+		"public": map[string]string{
+			"name": user.Description,
 		},
 	}
 
-	body, err := json.Marshal(payload)
-	if err != nil {
-		return fmt.Errorf("failed to marshal user payload: %w", err)
+	clientMsg := map[string]interface{}{
+		"acc": accMsg,
 	}
 
-	url := fmt.Sprintf("%s/v0/users", p.config.Server.APIEndpoint)
-	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(body))
-	if err != nil {
-		return fmt.Errorf("failed to create request: %w", err)
+	if err := wsClient.Send(clientMsg); err != nil {
+		p.log.Debugf("Failed to send acc message for user %s: %v", user.Login, err)
+		return nil // Soft error
 	}
 
-	req.Header.Set("Content-Type", "application/json")
-	if p.config.Server.APIKey != "" {
-		req.Header.Set("X-Tinode-APIKey", p.config.Server.APIKey)
-	}
-
-	client := &http.Client{}
-	resp, err := client.Do(req)
-	if err != nil {
-		p.log.Debugf("Could not provision user %s (connection failed): %v", user.Login, err)
-		return nil // Soft error - user might already exist or server unreachable
-	}
-	defer resp.Body.Close()
-
-	// Read response
-	respBody, _ := io.ReadAll(resp.Body)
-
-	// 200, 201 = created, 409 = already exists (OK)
-	if resp.StatusCode == 200 || resp.StatusCode == 201 || resp.StatusCode == 409 {
-		p.log.Debugf("User %s provisioned successfully (status: %d)", user.Login, resp.StatusCode)
-		return nil
-	}
-
-	// Other error codes are warnings but not fatal
-	p.log.Debugf("User %s provisioning status %d: %s", user.Login, resp.StatusCode, string(respBody))
+	p.log.Debugf("User %s provisioning requested via {acc} message", user.Login)
 	return nil
 }
 
