@@ -26,6 +26,10 @@ type ServerConfig struct {
 	APIKey      string `yaml:"api_key"`
 	APIEndpoint string `yaml:"api_endpoint"`
 	TimeoutSecs int    `yaml:"timeout_seconds"`
+	// Keycloak configuration for JWT authentication
+	KeycloakURL    string `yaml:"keycloak_url"`
+	KeycloakRealm  string `yaml:"keycloak_realm"`
+	KeycloakClient string `yaml:"keycloak_client"`
 }
 
 // GeneratorConfig defines generator-wide settings
@@ -39,6 +43,7 @@ type GeneratorConfig struct {
 	EventsLogFile      string `yaml:"events_log_file"`    // Added by CLI
 	MetricsAddr        string `yaml:"metrics_addr"`       // Added by CLI
 	SelectedScenarios  string `yaml:"selected_scenarios"` // Added by CLI
+	SkipProvisioning   bool   `yaml:"skip_provisioning"`  // Skip user creation, use existing accounts
 }
 
 // UserConfig defines a test user

@@ -4,6 +4,11 @@ server:
   api_key: "YOUR_TINODE_API_KEY_HERE"
   api_endpoint: "http://localhost:6060"    # For user provisioning (REST API)
   timeout_seconds: 30
+  # Keycloak configuration for JWT authentication
+  # If set, generator will use JWT tokens instead of basic auth
+  keycloak_url: "http://keycloak.keycloak.svc.cluster.local:80"     # Keycloak base URL (port 80 for in-cluster service)
+  keycloak_realm: "echo"                   # Keycloak realm name
+  keycloak_client: "webapp"                # Keycloak client ID
 
 # Global Settings
 generator:
@@ -24,33 +29,32 @@ generator:
   metrics_addr: ":8080"
   # Selected scenarios: "all" or comma-separated list (e.g., "brute_force,concurrent_sessions")
   selected_scenarios: "all"
+  # Skip provisioning: if true, assumes users already exist in Tinode and skips account creation
+  skip_provisioning: true
 
-# User Definitions (auto-provisioned on startup)
+# User Definitions (auto-provisioned on startup if skip_provisioning=false)
+# Note: With skip_provisioning=true, these credentials must match pre-existing Tinode accounts
+# Available Tinode demo accounts: alice123, bob123, carol123, dave123, eve123, frank123, tino123, xena123
 users:
   - id: attacker
-    login: attacker_user
-    password: "SecurePassword123!@#"
-    description: "Attacker account for security testing"
+    login: alice
+    password: "alice123"
+    description: "Attacker account (maps to alice demo user)"
   
   - id: victim
-    login: victim_user
-    password: "VictimPassword456!@#"
-    description: "Victim account for testing"
-  
-  - id: inactive
-    login: inactive_user
-    password: "InactivePassword789!@#"
-    description: "Inactive account (for R6 scenario)"
+    login: bob
+    password: "bob123"
+    description: "Victim account (maps to bob demo user)"
   
   - id: normal_user1
-    login: normal_user_1
-    password: "NormalPassword001!@#"
-    description: "Normal user for baseline traffic"
+    login: carol
+    password: "carol123"
+    description: "Normal user for baseline traffic (maps to carol demo user)"
   
   - id: normal_user2
-    login: normal_user_2
-    password: "NormalPassword002!@#"
-    description: "Normal user for baseline traffic"
+    login: dave
+    password: "dave123"
+    description: "Second normal user (maps to dave demo user)"
 
 # Topic Definitions (auto-created on startup)
 topics:
@@ -67,7 +71,7 @@ scenarios:
     enabled: true
     description: "Attempt multiple failed logins to trigger brute force detection"
     user_id: attacker
-    target_login: victim_user
+    target_login: bob
     password_attempts:
       - "WrongPassword1"
       - "WrongPassword2"

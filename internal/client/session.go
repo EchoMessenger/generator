@@ -2,7 +2,6 @@ package client
 
 import (
 	"context"
-	"encoding/base64"
 	"fmt"
 	"sync"
 	"time"
@@ -12,12 +11,13 @@ import (
 
 // Session represents an authenticated Tinode session
 type Session struct {
-	client   *Client
-	uid      string // Authenticated user ID
-	token    string // Authentication token
-	username string
-	password string
-	log      *logrus.Logger
+	client        *Client
+	uid           string // Authenticated user ID
+	token         string // Authentication token
+	username      string
+	password      string
+	keycloakClient *KeycloakClient
+	log           *logrus.Logger
 
 	// Message correlation
 	mu        sync.RWMutex
@@ -32,6 +32,18 @@ func NewSession(client *Client, username, password string, log *logrus.Logger) *
 		password:  password,
 		log:       log,
 		responses: make(map[string]chan *ServerMessage),
+	}
+}
+
+// NewSessionWithKeycloak creates a new session with Keycloak JWT support
+func NewSessionWithKeycloak(client *Client, username, password string, keycloakClient *KeycloakClient, log *logrus.Logger) *Session {
+	return &Session{
+		client:         client,
+		username:       username,
+		password:       password,
+		keycloakClient: keycloakClient,
+		log:            log,
+		responses:      make(map[string]chan *ServerMessage),
 	}
 }
 
@@ -95,20 +107,37 @@ func (s *Session) handshake(ctx context.Context) error {
 	return nil
 }
 
-// login sends {login scheme="basic"} and waits for token
+// login sends {login scheme="token"|"basic"} and waits for token
 func (s *Session) login(ctx context.Context) error {
 	msgID := s.client.NextMsgID()
 
-	// Encode credentials: username:password in base64
-	creds := fmt.Sprintf("%s:%s", s.username, s.password)
-	secret := base64.StdEncoding.EncodeToString([]byte(creds))
-	s.log.Debugf("Login attempt: username=%s, scheme=basic", s.username)
+	var scheme string
+	var secret []byte
+
+	// If Keycloak client is available, use JWT token auth
+	if s.keycloakClient != nil {
+		jwtToken, err := s.keycloakClient.GetToken(s.username, s.password)
+		if err != nil {
+			return fmt.Errorf("failed to get JWT token from Keycloak: %w", err)
+		}
+		// Format: "username:JWT_TOKEN"
+		creds := fmt.Sprintf("%s:%s", s.username, jwtToken)
+		secret = []byte(creds)
+		scheme = "token"
+		s.log.Debugf("Login attempt: username=%s, scheme=token (with JWT from Keycloak)", s.username)
+	} else {
+		// Fallback to basic auth (username:password)
+		creds := fmt.Sprintf("%s:%s", s.username, s.password)
+		secret = []byte(creds)
+		scheme = "basic"
+		s.log.Debugf("Login attempt: username=%s, scheme=basic", s.username)
+	}
 
 	msg := &ClientMessage{
 		Login: &LoginMessage{
 			ID:     msgID,
-			Scheme: "basic",
-			Secret: []byte(secret),
+			Scheme: scheme,
+			Secret: secret,
 		},
 	}
 
@@ -287,13 +316,11 @@ func (s *Session) Delete(ctx context.Context, topic string, delseq []DelRange, h
 func (s *Session) LoginToken(ctx context.Context, token string) error {
 	msgID := s.client.NextMsgID()
 
-	secret := base64.StdEncoding.EncodeToString([]byte(token))
-
 	msg := &ClientMessage{
 		Login: &LoginMessage{
 			ID:     msgID,
 			Scheme: "token",
-			Secret: []byte(secret),
+			Secret: []byte(token),
 		},
 	}
 

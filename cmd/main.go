@@ -131,6 +131,21 @@ func run(ctx context.Context, cfg *config.Config, log *logrus.Logger) error {
 
 	log.Infof("Initialized runner: max concurrency=%d, rate limit=%.1f/sec", maxConcurrency, rateLimitPerSec)
 
+	// Create Keycloak client for JWT authentication
+	var keycloakClient *client.KeycloakClient
+	if cfg.Server.KeycloakURL != "" && cfg.Server.KeycloakRealm != "" {
+		keycloakClient = client.NewKeycloakClient(
+			cfg.Server.KeycloakURL,
+			cfg.Server.KeycloakRealm,
+			cfg.Server.KeycloakClient,
+			log.WithField("component", "keycloak"),
+		)
+		log.Infof("Keycloak JWT authentication enabled (URL: %s, realm: %s)", cfg.Server.KeycloakURL, cfg.Server.KeycloakRealm)
+		runner.SetKeycloakClient(keycloakClient)
+	} else {
+		log.Info("Keycloak not configured; will use basic authentication")
+	}
+
 	// Convert config users to map
 	usersMap := make(map[string]config.UserConfig)
 	for _, user := range cfg.Users {
@@ -145,7 +160,7 @@ func run(ctx context.Context, cfg *config.Config, log *logrus.Logger) error {
 		}
 	}
 
-	// Register scenarios
+	// Register scenarios (Runner now has keycloakClient available to scenarios)
 	scenarioCount := 0
 
 	// Normal baseline scenario

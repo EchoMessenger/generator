@@ -2,8 +2,8 @@ package client
 
 import (
 	"context"
-	"encoding/base64"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/echomessenger/generator/internal/config"
@@ -26,9 +26,28 @@ func NewProvisioner(cfg *config.Config, log *logrus.Logger) *Provisioner {
 
 // ProvisionAll creates all required users and topics
 func (p *Provisioner) ProvisionAll(ctx context.Context) error {
+	if p.config.Generator.SkipProvisioning {
+		p.log.Infof("Skipping user provisioning (skip_provisioning=true)")
+		p.log.Infof("Assuming users exist with configured credentials")
+		
+		// Provision topics only
+		if p.config.Topics != nil {
+			for _, topic := range p.config.Topics {
+				if err := p.provisionTopic(ctx, topic); err != nil {
+					p.log.Warnf("Failed to provision topic %s: %v", topic.Name, err)
+				}
+			}
+		}
+		
+		p.log.Infof("Provisioning complete")
+		return nil
+	}
+
 	p.log.Infof("Starting provisioning: %d users", len(p.config.Users))
 
-	// Provision users
+	// Provision users via individual WebSocket connections
+	// Per Tinode docs: any session (even unauthenticated) can create new users
+	// by setting user: "newXXX" in {acc} message
 	for _, user := range p.config.Users {
 		if err := p.provisionUser(ctx, user); err != nil {
 			p.log.Warnf("Failed to provision user %s: %v", user.ID, err)
@@ -50,65 +69,43 @@ func (p *Provisioner) ProvisionAll(ctx context.Context) error {
 	return nil
 }
 
-// provisionUser attempts to create a user via WebSocket connection
+// provisionUser creates a new user account
+// Per Tinode protocol: set user: "newXXX" to create new user from any session
 func (p *Provisioner) provisionUser(ctx context.Context, user config.UserConfig) error {
-	p.log.Debugf("Provisioning user: %s (%s)", user.ID, user.Login)
+	p.log.Infof("Provisioning user: %s (%s)", user.ID, user.Login)
 
 	// Connect to server via WebSocket
 	wsClient := NewClient(p.config.Server.URL, p.config.Server.APIKey, p.log)
 	if err := wsClient.Connect(ctx); err != nil {
-		p.log.Debugf("Could not provision user %s (connection failed): %v", user.Login, err)
-		return nil // Soft error - server may be unreachable but provisioning can continue
+		p.log.Warnf("Could not provision user %s (connection failed): %v", user.Login, err)
+		return nil // Soft error
 	}
 	defer wsClient.Close()
 
 	// Create a session for request/response correlation
 	session := NewSession(wsClient, "", "", p.log)
-	
-	// Start response dispatcher
 	go session.dispatchResponses()
-	
-	// Step 1: Send handshake {hi} message and wait for response
+
+	// Send handshake
+	if err := session.handshake(ctx); err != nil {
+		p.log.Warnf("Handshake failed for user %s: %v", user.Login, err)
+		return nil
+	}
+
+	// Create new account with user: "new<UserID>"
+	// This allows account creation from unauthenticated session
 	msgID := wsClient.NextMsgID()
-	hiMsg := &ClientMessage{
-		Hi: &HiMessage{
-			ID:   msgID,
-			Ver:  "0.19",
-			UA:   "Generator/1.0",
-			Lang: "en-US",
-		},
-	}
-
-	if err := wsClient.SendSync(ctx, hiMsg); err != nil {
-		p.log.Debugf("Failed to send handshake for user %s: %v", user.Login, err)
-		return nil
-	}
 	
-	// Wait for handshake response
-	resp, err := session.waitForResponse(ctx, msgID, 5*time.Second)
-	if err != nil {
-		p.log.Debugf("Handshake failed for user %s: %v", user.Login, err)
-		return nil
-	}
-	
-	if resp.Ctrl == nil || (resp.Ctrl.Code != 200 && resp.Ctrl.Code != 201) {
-		p.log.Debugf("Handshake rejected for user %s", user.Login)
-		return nil
-	}
-
-	// Step 2: Create account via {acc} message with basic auth scheme
-	msgID = wsClient.NextMsgID()
-	
-	// Encode credentials: username:password in base64 for basic auth
+	// Credentials will be base64-encoded by JSON marshaler
 	creds := fmt.Sprintf("%s:%s", user.Login, user.Password)
-	secret := base64.StdEncoding.EncodeToString([]byte(creds))
-	
+
 	accMsg := &ClientMessage{
 		Acc: &AccMessage{
 			ID:     msgID,
-			Scheme: "basic", // Must specify scheme for account creation
-			Secret: []byte(secret), // base64-encoded login:password
-			Login:  true, // Auto-login after account creation
+			User:   "new" + user.ID, // Signal to create new user with this ID
+			Scheme: "basic",           // Use basic auth
+			Secret: []byte(creds),     // Will be base64-encoded by JSON marshaler
+			Login:  true,              // Immediately login with new account
 			Public: map[string]interface{}{
 				"name": user.Description,
 			},
@@ -117,32 +114,108 @@ func (p *Provisioner) provisionUser(ctx context.Context, user config.UserConfig)
 
 	if err := wsClient.SendSync(ctx, accMsg); err != nil {
 		p.log.Debugf("Failed to send acc message for user %s: %v", user.Login, err)
-		return nil // Soft error
-	}
-	p.log.Debugf("Sent {acc} message for user %s with scheme=basic", user.Login)
-	
-	// Wait for account creation response
-	resp, err = session.waitForResponse(ctx, msgID, 5*time.Second)
-	if err != nil {
-		p.log.Debugf("Account creation failed for user %s: %v", user.Login, err)
 		return nil
 	}
-	
+	p.log.Debugf("Sent {acc} message for user %s with user=new%s scheme=basic login=true", user.Login, user.ID)
+
+	// Wait for account creation response
+	resp, err := session.waitForResponse(ctx, msgID, 5*time.Second)
+	if err != nil {
+		p.log.Debugf("Account creation timeout for user %s: %v", user.Login, err)
+		return nil
+	}
+
 	if resp.Ctrl == nil {
 		p.log.Debugf("Account creation returned nil ctrl for user %s", user.Login)
 		return nil
 	}
-	
+
 	if resp.Ctrl.Code != 200 && resp.Ctrl.Code != 201 {
-		p.log.Debugf("Account creation rejected for user %s: code=%d text=%s", user.Login, resp.Ctrl.Code, resp.Ctrl.Text)
+		// Check if account already exists (error codes that indicate this)
+		if resp.Ctrl.Code == 409 || (resp.Ctrl.Code >= 400 && strings.Contains(strings.ToLower(resp.Ctrl.Text), "duplicate")) {
+			p.log.Infof("Account %s already exists, attempting to verify login credentials", user.Login)
+			
+			// Try to login with existing account to verify password matches
+			if err := p.verifyExistingUser(ctx, wsClient, user); err != nil {
+				p.log.Warnf("Existing account %s found but login verification failed: %v", user.Login, err)
+				return nil // Account exists but password mismatch - can't use it
+			}
+			
+			p.log.Infof("Account %s verified (already exists with correct password)", user.Login)
+			return nil // Account exists and password is correct
+		}
+		
+		// Other errors
+		p.log.Warnf("Account creation rejected for user %s: code=%d text=%s", user.Login, resp.Ctrl.Code, resp.Ctrl.Text)
 		return nil
 	}
 
-	p.log.Infof("User %s provisioned successfully (code=%d)", user.Login, resp.Ctrl.Code)
+	// Extract user ID from response
+	userID := ""
+	if resp.Ctrl.Params != nil {
+		if uid, ok := resp.Ctrl.Params["user"]; ok {
+			userID = uid.(string)
+			p.log.Infof("User %s created with ID: %s", user.Login, userID)
+		}
+	}
+
+	// Extract token if provided (should be present with login=true)
+	token := ""
+	if resp.Ctrl.Params != nil {
+		if t, ok := resp.Ctrl.Params["token"]; ok {
+			token = t.(string)
+			if len(token) > 20 {
+				p.log.Debugf("Got auth token for user %s: %s...", user.Login, token[:20])
+			}
+		}
+	}
+
+	p.log.Infof("User %s provisioned successfully (code=%d, userID=%s)", user.Login, resp.Ctrl.Code, userID)
 	return nil
 }
 
-// provisionTopic attempts to create a topic
+// verifyExistingUser attempts to login to an existing account to verify credentials match
+func (p *Provisioner) verifyExistingUser(ctx context.Context, wsClient *Client, user config.UserConfig) error {
+	p.log.Debugf("Verifying login for existing user %s", user.Login)
+	
+	// Create a session for verification
+	verifySession := NewSession(wsClient, user.Login, user.Password, p.log)
+	go verifySession.dispatchResponses()
+	
+	// Send login message
+	msgID := wsClient.NextMsgID()
+	creds := fmt.Sprintf("%s:%s", user.Login, user.Password)
+	
+	loginMsg := &ClientMessage{
+		Login: &LoginMessage{
+			ID:     msgID,
+			Scheme: "basic",
+			Secret: []byte(creds),
+		},
+	}
+	
+	if err := wsClient.SendSync(ctx, loginMsg); err != nil {
+		p.log.Debugf("Failed to send login message for verification: %v", err)
+		return err
+	}
+	p.log.Debugf("Sent {login} to verify existing user %s", user.Login)
+	
+	// Wait for login response
+	resp, err := verifySession.waitForResponse(ctx, msgID, 5*time.Second)
+	if err != nil {
+		p.log.Debugf("Login verification timeout for user %s: %v", user.Login, err)
+		return err
+	}
+	
+	if resp.Ctrl == nil || (resp.Ctrl.Code != 200 && resp.Ctrl.Code != 201) {
+		return fmt.Errorf("login failed for user %s: code=%d text=%s", user.Login, resp.Ctrl.Code, resp.Ctrl.Text)
+	}
+	
+	p.log.Debugf("Login verification successful for user %s", user.Login)
+	return nil
+}
+
+// loginAsAdmin logs in as the xena admin user to enable account creation
 func (p *Provisioner) provisionTopic(ctx context.Context, topicCfg config.TopicConfig) error {
 	p.log.Debugf("Provisioning topic: %s (%s)", topicCfg.Name, topicCfg.Type)
 

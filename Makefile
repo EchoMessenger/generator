@@ -4,7 +4,8 @@
 BINARY_NAME=generator
 MAIN_PATH=./cmd
 BUILD_DIR=./build
-DOCKER_IMAGE=echomessenger/generator:latest
+DOCKER_IMAGE=ghcr.io/echomessenger/generator:latest
+PLATFORM  ?= linux/amd64
 
 # Default target
 help:
@@ -50,8 +51,11 @@ lint:
 	go vet ./...
 
 # Docker
-docker-build: build
-	docker build -t $(DOCKER_IMAGE) -f Dockerfile .
+docker-build:
+	docker build \
+	    --platform $(PLATFORM) \
+		--tag $(DOCKER_IMAGE) \
+		.
 
 docker-run: docker-build
 	docker run --rm \

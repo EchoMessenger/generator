@@ -119,6 +119,7 @@ type NoteMessage struct {
 type AccMessage struct {
 	ID     string                 `json:"id,omitempty"`
 	User   string                 `json:"user,omitempty"`
+	Token  string                 `json:"token,omitempty"` // Authentication token (for changing existing account)
 	Scheme string                 `json:"scheme,omitempty"`
 	Secret []byte                 `json:"secret,omitempty"`
 	Login  bool                   `json:"login,omitempty"`

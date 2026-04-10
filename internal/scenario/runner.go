@@ -7,6 +7,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/echomessenger/generator/internal/client"
 	"github.com/sirupsen/logrus"
 )
 
@@ -32,6 +33,7 @@ type Runner struct {
 	statsLock        sync.RWMutex
 	stats            map[string]*ScenarioStats
 	globalMessagesCh chan struct{} // Token bucket for rate limiting
+	keycloakClient   *client.KeycloakClient
 }
 
 // ScenarioStats tracks execution metrics for a scenario
@@ -56,6 +58,11 @@ func NewRunner(log *logrus.Logger, maxConcurrency int, rateLimitPerSec float64) 
 		stats:            make(map[string]*ScenarioStats),
 		globalMessagesCh: make(chan struct{}, 100), // Global rate limit buffer
 	}
+}
+
+// SetKeycloakClient sets the Keycloak client for JWT auth
+func (r *Runner) SetKeycloakClient(kc *client.KeycloakClient) {
+	r.keycloakClient = kc
 }
 
 // Register adds a scenario to the runner

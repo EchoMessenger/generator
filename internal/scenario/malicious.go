@@ -80,7 +80,12 @@ func (bs *BruteForceScenario) Run(ctx context.Context) error {
 			password = fmt.Sprintf("wrong-password-%d", i)
 		}
 
-		session := client.NewSession(wsClient, bs.config.TargetLogin, password, bs.log)
+		var session *client.Session
+		if bs.runner.keycloakClient != nil {
+			session = client.NewSessionWithKeycloak(wsClient, bs.config.TargetLogin, password, bs.runner.keycloakClient, bs.log)
+		} else {
+			session = client.NewSession(wsClient, bs.config.TargetLogin, password, bs.log)
+		}
 
 		if err := session.Connect(ctx); err != nil {
 			// Expected: login should fail with wrong password
@@ -156,7 +161,12 @@ func (mds *MassDeleteScenario) Run(ctx context.Context) error {
 	}
 	defer wsClient.Close()
 
-	session := client.NewSession(wsClient, user.Login, user.Password, mds.log)
+	var session *client.Session
+	if mds.runner.keycloakClient != nil {
+		session = client.NewSessionWithKeycloak(wsClient, user.Login, user.Password, mds.runner.keycloakClient, mds.log)
+	} else {
+		session = client.NewSession(wsClient, user.Login, user.Password, mds.log)
+	}
 	if err := session.Connect(scenarioCtx); err != nil {
 		return fmt.Errorf("failed to authenticate: %w", err)
 	}
@@ -250,7 +260,12 @@ func (vas *VolumeAnomalyScenario) Run(ctx context.Context) error {
 	}
 	defer wsClient.Close()
 
-	session := client.NewSession(wsClient, user.Login, user.Password, vas.log)
+	var session *client.Session
+	if vas.runner.keycloakClient != nil {
+		session = client.NewSessionWithKeycloak(wsClient, user.Login, user.Password, vas.runner.keycloakClient, vas.log)
+	} else {
+		session = client.NewSession(wsClient, user.Login, user.Password, vas.log)
+	}
 	if err := session.Connect(scenarioCtx); err != nil {
 		return fmt.Errorf("failed to authenticate: %w", err)
 	}
@@ -340,7 +355,12 @@ func (es *EnumerationScenario) Run(ctx context.Context) error {
 	}
 	defer wsClient.Close()
 
-	session := client.NewSession(wsClient, user.Login, user.Password, es.log)
+	var session *client.Session
+	if es.runner.keycloakClient != nil {
+		session = client.NewSessionWithKeycloak(wsClient, user.Login, user.Password, es.runner.keycloakClient, es.log)
+	} else {
+		session = client.NewSession(wsClient, user.Login, user.Password, es.log)
+	}
 	if err := session.Connect(scenarioCtx); err != nil {
 		return fmt.Errorf("failed to authenticate: %w", err)
 	}
@@ -432,7 +452,12 @@ func (ias *InactiveAccountScenario) Run(ctx context.Context) error {
 	}
 	defer wsClient.Close()
 
-	session := client.NewSession(wsClient, user.Login, user.Password, ias.log)
+	var session *client.Session
+	if ias.runner.keycloakClient != nil {
+		session = client.NewSessionWithKeycloak(wsClient, user.Login, user.Password, ias.runner.keycloakClient, ias.log)
+	} else {
+		session = client.NewSession(wsClient, user.Login, user.Password, ias.log)
+	}
 	if err := session.Connect(scenarioCtx); err != nil {
 		return fmt.Errorf("failed to authenticate: %w", err)
 	}
@@ -549,7 +574,12 @@ func (ohs *OffHoursScenario) Run(ctx context.Context) error {
 	}
 	defer wsClient.Close()
 
-	session := client.NewSession(wsClient, user.Login, user.Password, ohs.log)
+	var session *client.Session
+	if ohs.runner.keycloakClient != nil {
+		session = client.NewSessionWithKeycloak(wsClient, user.Login, user.Password, ohs.runner.keycloakClient, ohs.log)
+	} else {
+		session = client.NewSession(wsClient, user.Login, user.Password, ohs.log)
+	}
 	if err := session.Connect(scenarioCtx); err != nil {
 		return fmt.Errorf("failed to authenticate: %w", err)
 	}

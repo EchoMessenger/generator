@@ -101,7 +101,12 @@ func (ns *NormalScenario) runUser(ctx context.Context, userID string, intervalMs
 	}
 	defer wsClient.Close()
 
-	session := client.NewSession(wsClient, user.Login, user.Password, ns.log)
+	var session *client.Session
+	if ns.runner.keycloakClient != nil {
+		session = client.NewSessionWithKeycloak(wsClient, user.Login, user.Password, ns.runner.keycloakClient, ns.log)
+	} else {
+		session = client.NewSession(wsClient, user.Login, user.Password, ns.log)
+	}
 	if err := session.Connect(ctx); err != nil {
 		return fmt.Errorf("failed to authenticate: %w", err)
 	}
@@ -242,7 +247,12 @@ func (cs *ConcurrentSessionsScenario) runSession(ctx context.Context, user confi
 	}
 	defer wsClient.Close()
 
-	session := client.NewSession(wsClient, user.Login, user.Password, cs.log)
+	var session *client.Session
+	if cs.runner.keycloakClient != nil {
+		session = client.NewSessionWithKeycloak(wsClient, user.Login, user.Password, cs.runner.keycloakClient, cs.log)
+	} else {
+		session = client.NewSession(wsClient, user.Login, user.Password, cs.log)
+	}
 	if err := session.Connect(ctx); err != nil {
 		return fmt.Errorf("failed to authenticate: %w", err)
 	}
